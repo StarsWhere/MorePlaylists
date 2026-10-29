@@ -26,7 +26,9 @@ namespace MorePlaylists.BeatSaver
         private readonly BeatSaverFiltersViewController beatSaverFiltersViewController = null!;
 
         private IBeatSaverEntry? selectedPlaylistEntry;
+        private string downloadError = string.Empty;
         private CancellationTokenSource? spriteLoadTokenSource;
+        private bool viewParsed;
 
         public ViewController ViewController => this;
         public event Action<IEntry, bool>? DidPressDownload;
@@ -44,8 +46,10 @@ namespace MorePlaylists.BeatSaver
         private void PostParse()
         {
             rectTransform.anchorMax = new Vector2(0.5f, 1);
-            playlistCoverView.material = materialGrabber.NoGlowRoundEdge;
-            userImageView.material = materialGrabber.NoGlowRoundEdge;
+            if (materialGrabber != null && playlistCoverView != null) playlistCoverView.material = materialGrabber.NoGlowRoundEdge;
+            if (materialGrabber != null && userImageView != null) userImageView.material = materialGrabber.NoGlowRoundEdge;
+            viewParsed = true;
+            ApplySelectedDetails();
         }
 
         [UIAction("author-click")]
@@ -61,6 +65,7 @@ namespace MorePlaylists.BeatSaver
         {
             if (selectedPlaylistEntry != null)
             {
+                ClearDownloadError();
                 DidPressDownload?.Invoke(selectedPlaylistEntry, false);
                 NotifyPropertyChanged(nameof(DownloadInteractable));
             }
@@ -71,6 +76,7 @@ namespace MorePlaylists.BeatSaver
         {
             if (selectedPlaylistEntry != null)
             {
+                ClearDownloadError();
                 DidPressDownload?.Invoke(selectedPlaylistEntry, true);
                 NotifyPropertyChanged(nameof(DownloadInteractable));
             }
@@ -92,30 +98,87 @@ namespace MorePlaylists.BeatSaver
             if (selectedPlaylistEntry is IBeatSaverEntry beatSaverEntry)
             {
                 this.selectedPlaylistEntry = beatSaverEntry;
-                NotifyPropertyChanged(nameof(DownloadInteractable));
-                NotifyPropertyChanged(nameof(DownloadActive));
-                NotifyPropertyChanged(nameof(GoToActive));
-                NotifyPropertyChanged(nameof(PlaylistName));
-                NotifyPropertyChanged(nameof(PlaylistAuthor));
-                NotifyPropertyChanged(nameof(PlaylistDescription));
-                descriptionTextPage.ScrollTo(0, true);
-
-                spriteLoadTokenSource?.Cancel();
-                spriteLoadTokenSource?.Dispose();
-                spriteLoadTokenSource = new CancellationTokenSource();
-                _ = spriteLoader.DownloadSpriteAsync(beatSaverEntry.SpriteURL,
-                    sprite => playlistCoverView.sprite = sprite, spriteLoadTokenSource.Token);
-                userImageView.sprite = BeatSaberMarkupLanguage.Utilities.ImageResources.BlankSprite;
-                _ = spriteLoader.DownloadSpriteAsync(beatSaverEntry.Owner.Avatar,
-                    sprite => userImageView.sprite = sprite, spriteLoadTokenSource.Token);
+                if (!viewParsed) return;
+                ApplySelectedDetails();
             }
         }
 
-        public void OnPlaylistDownloaded()
+        private void ApplySelectedDetails()
         {
+            if (!viewParsed || selectedPlaylistEntry == null) return;
+
+            IBeatSaverEntry beatSaverEntry = selectedPlaylistEntry;
+            ClearDownloadError();
             NotifyPropertyChanged(nameof(DownloadInteractable));
             NotifyPropertyChanged(nameof(DownloadActive));
             NotifyPropertyChanged(nameof(GoToActive));
+            NotifyPropertyChanged(nameof(PlaylistName));
+            NotifyPropertyChanged(nameof(PlaylistAuthor));
+            NotifyPropertyChanged(nameof(PlaylistDescription));
+            if (descriptionTextPage != null) descriptionTextPage.ScrollTo(0, true);
+
+            spriteLoadTokenSource?.Cancel();
+            spriteLoadTokenSource?.Dispose();
+            spriteLoadTokenSource = new CancellationTokenSource();
+            CancellationToken token = spriteLoadTokenSource.Token;
+            if (playlistCoverView != null)
+            {
+                _ = spriteLoader.DownloadSpriteAsync(beatSaverEntry.SpriteURL,
+                    sprite =>
+                    {
+                        if (!token.IsCancellationRequested && ReferenceEquals(selectedPlaylistEntry, beatSaverEntry) && playlistCoverView != null)
+                            playlistCoverView.sprite = sprite;
+                    }, token);
+            }
+            if (userImageView != null && beatSaverEntry.Owner != null)
+            {
+                userImageView.sprite = BeatSaberMarkupLanguage.Utilities.ImageResources.BlankSprite;
+                _ = spriteLoader.DownloadSpriteAsync(beatSaverEntry.Owner.Avatar,
+                    sprite =>
+                    {
+                        if (!token.IsCancellationRequested && ReferenceEquals(selectedPlaylistEntry, beatSaverEntry) && userImageView != null)
+                            userImageView.sprite = sprite;
+                    }, token);
+            }
+        }
+
+        public void OnPlaylistDownloaded(IEntry entry)
+        {
+            if (!ReferenceEquals(selectedPlaylistEntry, entry))
+            {
+                return;
+            }
+
+            ClearDownloadError();
+            NotifyPropertyChanged(nameof(DownloadInteractable));
+            NotifyPropertyChanged(nameof(DownloadActive));
+            NotifyPropertyChanged(nameof(GoToActive));
+        }
+
+        public void OnPlaylistDownloadFailed(IEntry entry, Exception exception)
+        {
+            if (!ReferenceEquals(selectedPlaylistEntry, entry))
+            {
+                return;
+            }
+
+            downloadError = "Download failed. Try again.";
+            NotifyPropertyChanged(nameof(HasDownloadError));
+            NotifyPropertyChanged(nameof(DownloadError));
+            NotifyPropertyChanged(nameof(DownloadInteractable));
+            NotifyPropertyChanged(nameof(DownloadActive));
+        }
+
+        private void ClearDownloadError()
+        {
+            if (downloadError.Length == 0)
+            {
+                return;
+            }
+
+            downloadError = string.Empty;
+            NotifyPropertyChanged(nameof(HasDownloadError));
+            NotifyPropertyChanged(nameof(DownloadError));
         }
 
         #region Values
@@ -167,6 +230,10 @@ namespace MorePlaylists.BeatSaver
         public bool DownloadInteractable => selectedPlaylistEntry is {DownloadBlocked: false};
 
         [UIValue("download-active")] public bool DownloadActive => selectedPlaylistEntry is {LocalPlaylist: null};
+
+        [UIValue("has-download-error")] public bool HasDownloadError => downloadError.Length > 0;
+
+        [UIValue("download-error")] public string DownloadError => downloadError;
 
         [UIValue("go-to-active")] public bool GoToActive => selectedPlaylistEntry is {LocalPlaylist: { }};
 

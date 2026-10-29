@@ -6,6 +6,7 @@ using BeatSaberPlaylistsLib.Types;
 using BeatSaverSharp.Models;
 using BeatSaverSharp.Models.Pages;
 using MorePlaylists.Entries;
+using MorePlaylists.Utilities;
 using SiraUtil.Web;
 
 namespace MorePlaylists.BeatSaver
@@ -32,25 +33,25 @@ namespace MorePlaylists.BeatSaver
         
         public async Task<List<Song>?> GetSongs(IHttpService siraHttpService, CancellationToken cancellationToken = default, bool firstPage = false)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!firstPage && ExhaustedPages) return new List<Song>();
+            Page? nextPage;
             if (beatmapsPage == null || firstPage)
             {
-                beatmapsPage = await Owner.Beatmaps(token: cancellationToken);
-                ExhaustedPages = false;
+                nextPage = await RemoteRequest.BeatSaverPage(requestToken => Owner.Beatmaps(token: requestToken),
+                    cancellationToken, "Fetch songs by " + Owner.Name);
             }
             else
             {
-                var newPage = await beatmapsPage.Next(cancellationToken);
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    return null;
-                }
-                beatmapsPage = newPage;
+                nextPage = await RemoteRequest.BeatSaverPage(requestToken => beatmapsPage.Next(requestToken),
+                    cancellationToken, "Fetch next song page by " + Owner.Name);
             }
-
+            cancellationToken.ThrowIfCancellationRequested();
+            beatmapsPage = nextPage;
+            ExhaustedPages = beatmapsPage == null || beatmapsPage.Empty;
             if (beatmapsPage == null || beatmapsPage.Empty)
             {
-                ExhaustedPages = true;
-                return null;
+                return new List<Song>();
             }
 
             var songs = new List<Song>();
@@ -63,31 +64,12 @@ namespace MorePlaylists.BeatSaver
 
         public async Task<IPlaylist?> DownloadPlaylist(IHttpService siraHttpService, CancellationToken cancellationToken = default)
         {
-            try
+            return await RemoteRequest.GetPlaylist(siraHttpService, PlaylistURL, cancellationToken, stream =>
             {
-                var webResponse = await siraHttpService.GetAsync(PlaylistURL, cancellationToken: cancellationToken);
-                if (webResponse.Successful)
-                {
-                    using var playlistStream = await webResponse.ReadAsStreamAsync();
-                    var playlist = BeatSaberPlaylistsLib.PlaylistManager.DefaultManager.DefaultHandler?.Deserialize(playlistStream);
-                    return playlist;
-                }
-
-                if (!cancellationToken.IsCancellationRequested)
-                {
-                    Plugin.Log?.Error("An error occurred while acquiring " + PlaylistURL +
-                                      $"\nError code: {webResponse.Code}");
-                }
-            }
-            catch (Exception e)
-            {
-                if (e is not TaskCanceledException)
-                {
-                    Plugin.Log?.Error("An exception occurred while acquiring " + PlaylistURL +
-                                      $"\nException: {e.Message}");
-                }
-            }
-            return null;
+                var handler = BeatSaberPlaylistsLib.PlaylistManager.DefaultManager.DefaultHandler
+                    ?? throw new InvalidOperationException("No playlist deserializer is registered.");
+                return handler.Deserialize(stream) ?? throw new System.IO.InvalidDataException("The downloaded user playlist could not be deserialized: " + PlaylistURL);
+            });
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -33,6 +33,7 @@ namespace MorePlaylists.BeatSaver
         private CancellationTokenSource? loadCancellationTokenSource;
         private List<IBeatSaverEntry> allPlaylists = new();
         private BeatSaver? currentSource;
+        private bool retryRefresh = true;
         
         private ScrollView? scrollView;
         private float? currentScrollPosition;
@@ -53,11 +54,12 @@ namespace MorePlaylists.BeatSaver
             base.DidActivate(firstActivation, addedToHierarchy, screenSystemEnabling);
             if (currentSource != null && customListTableData != null && sourceButton != null && scrollView != null)
             {
-                sourceButton.image.sprite = currentSource.Logo;
+                sourceButton.Image.sprite = currentSource.Logo;
                 
                 loadCancellationTokenSource?.Cancel();
                 loadCancellationTokenSource?.Dispose();
                 loadCancellationTokenSource = new CancellationTokenSource();
+                ClearError();
                 
                 scrollView.scrollPositionChangedEvent += OnScrollPositionChanged;
                 
@@ -68,6 +70,7 @@ namespace MorePlaylists.BeatSaver
         protected override void DidDeactivate(bool removedFromHierarchy, bool screenSystemDisabling)
         {
             base.DidDeactivate(removedFromHierarchy, screenSystemDisabling);
+            loadCancellationTokenSource?.Cancel();
             if (scrollView != null)
             {
                 scrollView.scrollPositionChangedEvent -= OnScrollPositionChanged;
@@ -76,8 +79,7 @@ namespace MorePlaylists.BeatSaver
 
         public void Dispose()
         {
-            playlistLoadSemaphore.Dispose();
-            loadCancellationTokenSource?.Dispose();
+            AbortLoading();
             if (filtersButton != null && clearFiltersButton != null)
             {
                 filtersButton.onClick.RemoveAllListeners();
@@ -92,7 +94,8 @@ namespace MorePlaylists.BeatSaver
         {
             rectTransform.anchorMin = new Vector2(0.5f, 0);
             rectTransform.localPosition = Vector3.zero;
-            scrollView = Accessors.ScrollViewAccessor(ref customListTableData!.tableView);
+            var tableView = customListTableData!.TableView;
+            scrollView = Accessors.ScrollViewAccessor(ref tableView);
             InstantiateFilterBar();
         }
 
@@ -101,6 +104,20 @@ namespace MorePlaylists.BeatSaver
 
         [UIAction("source-click")]
         private void DisplaySources() => DidClickSource?.Invoke();
+
+        [UIAction("retry-click")]
+        private void RetryClicked()
+        {
+            if (currentSource == null)
+            {
+                return;
+            }
+
+            loadCancellationTokenSource?.Cancel();
+            loadCancellationTokenSource?.Dispose();
+            loadCancellationTokenSource = new CancellationTokenSource();
+            _ = LoadPlaylists(currentSource, loadCancellationTokenSource.Token, retryRefresh);
+        }
         
         public void AbortLoading()
         {
@@ -114,14 +131,14 @@ namespace MorePlaylists.BeatSaver
         
         public void SetEntryAsOwned(IEntry playlistEntry)
         {
-            var index = allPlaylists.IndexOf(playlistEntry);
+            var index = allPlaylists.FindIndex(entry => ReferenceEquals(entry, playlistEntry));
             if (index >= 0 && customListTableData != null)
             {
-                customListTableData.data[index] = new CustomListTableData.CustomCellInfo($"<#7F7F7F>{playlistEntry.Title}", playlistEntry.Author);
+                customListTableData.Data[index] = new CustomListTableData.CustomCellInfo($"<#7F7F7F>{playlistEntry.Title}", playlistEntry.Author);
                 _ = spriteLoader.DownloadSpriteAsync(playlistEntry.SpriteURL, sprite =>
                 {
-                    customListTableData.data[index].icon = sprite;
-                    customListTableData.tableView.ReloadDataKeepingPosition();
+                    customListTableData.Data[index].Icon = sprite;
+                    customListTableData.TableView.ReloadDataKeepingPosition();
                 });
             }
         }
@@ -144,20 +161,24 @@ namespace MorePlaylists.BeatSaver
                 return;
             }
                 
-            await playlistLoadSemaphore.WaitAsync(cancellationToken);
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-
+            var semaphoreAcquired = false;
             try
             {
+                await playlistLoadSemaphore.WaitAsync(cancellationToken);
+                semaphoreAcquired = true;
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                ClearError();
+                retryRefresh = refreshRequested;
                 if (refreshRequested)
                 {
                     await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(() =>
                     {
-                        customListTableData.tableView.ClearSelection();
-                        customListTableData.data.Clear();
+                        customListTableData.TableView.ClearSelection();
+                        customListTableData.Data.Clear();
                         allPlaylists.Clear();
                         Loaded = false;
                     });   
@@ -172,8 +193,14 @@ namespace MorePlaylists.BeatSaver
 
                 var currentPlaylists = await source.GetPage(refreshRequested, cancellationToken);
 
-                if (cancellationToken.IsCancellationRequested || currentPlaylists == null)
+                if (cancellationToken.IsCancellationRequested)
                 {
+                    return;
+                }
+
+                if (currentPlaylists == null)
+                {
+                    SetError("Unable to load BeatSaver playlists. Check your connection and retry.");
                     return;
                 }
                 
@@ -181,15 +208,31 @@ namespace MorePlaylists.BeatSaver
                     
                 ShowPlaylists(currentPlaylists, cancellationToken);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.Error($"Unable to load BeatSaver playlists: {e}");
+                if (!cancellationToken.IsCancellationRequested)
+                    SetError("Unable to load BeatSaver playlists. Check your connection and retry.");
+            }
             finally
             {
-                Loaded = true;
-                await SiraUtil.Extras.Utilities.PauseChamp;
-                await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(() =>
+                if (semaphoreAcquired)
                 {
-                    customListTableData.tableView.ReloadDataKeepingPosition();
-                });
-                playlistLoadSemaphore.Release();
+                    try
+                    {
+                        if (!cancellationToken.IsCancellationRequested)
+                            await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(() =>
+                            {
+                                Loaded = true;
+                                customListTableData.TableView.ReloadDataKeepingPosition();
+                            });
+                    }
+                    catch (Exception exception) { Plugin.Log?.Error("Unable to update BeatSaver playlist list: " + exception); }
+                    finally { playlistLoadSemaphore.Release(); }
+                }
             }
         }
 
@@ -209,11 +252,11 @@ namespace MorePlaylists.BeatSaver
 
                 _ = spriteLoader.DownloadSpriteAsync(playlistEntry.SpriteURL, sprite =>
                 {
-                    customCellInfo.icon = sprite;
-                    customListTableData.tableView.ReloadDataKeepingPosition();
+                    customCellInfo.Icon = sprite;
+                    customListTableData.TableView.ReloadDataKeepingPosition();
                 }, cancellationToken);
 
-                customListTableData.data.Add(customCellInfo);
+                customListTableData.Data.Add(customCellInfo);
                 allPlaylists.Add(playlistEntry);
 
                 if (cancellationToken.IsCancellationRequested)
@@ -231,8 +274,6 @@ namespace MorePlaylists.BeatSaver
             }
 
             currentScrollPosition = newPos;
-            scrollView.RefreshButtons();
-
             if (!Accessors.PageDownAccessor(ref scrollView).interactable)
             {
                 loadCancellationTokenSource?.Cancel();
@@ -247,6 +288,37 @@ namespace MorePlaylists.BeatSaver
         #region Loading
 
         private bool loaded;
+        private string errorText = string.Empty;
+
+        private void ClearError()
+        {
+            if (errorText.Length == 0)
+            {
+                return;
+            }
+
+            errorText = string.Empty;
+            NotifyPropertyChanged(nameof(HasError));
+            NotifyPropertyChanged(nameof(ErrorText));
+            NotifyPropertyChanged(nameof(HasNoResults));
+        }
+
+        private void SetError(string message)
+        {
+            errorText = message;
+            NotifyPropertyChanged(nameof(HasError));
+            NotifyPropertyChanged(nameof(ErrorText));
+            NotifyPropertyChanged(nameof(HasNoResults));
+        }
+
+        [UIValue("has-error")]
+        private bool HasError => errorText.Length > 0;
+
+        [UIValue("has-no-results")]
+        private bool HasNoResults => Loaded && !HasError && customListTableData?.Data.Count == 0;
+
+        [UIValue("error-text")]
+        private string ErrorText => errorText;
         
         [UIValue("is-loading")]
         private bool IsLoading => !Loaded;
@@ -260,6 +332,7 @@ namespace MorePlaylists.BeatSaver
                 loaded = value;
                 NotifyPropertyChanged();
                 NotifyPropertyChanged(nameof(IsLoading));
+                NotifyPropertyChanged(nameof(HasNoResults));
             }
         }
         
@@ -315,7 +388,7 @@ namespace MorePlaylists.BeatSaver
                 loadCancellationTokenSource?.Cancel();
                 loadCancellationTokenSource?.Dispose();
                 loadCancellationTokenSource = new CancellationTokenSource();
-                _ = LoadPlaylists(currentSource, CancellationToken.None, true);
+                _ = LoadPlaylists(currentSource, loadCancellationTokenSource.Token, true);
             }
         }
 
@@ -327,7 +400,7 @@ namespace MorePlaylists.BeatSaver
                     if (filterOptions.NullableSearchFilter == null)
                     {
                         FilterString = string.Empty;
-                        return;
+                        break;
                     }
 
                     var sb = new StringBuilder();

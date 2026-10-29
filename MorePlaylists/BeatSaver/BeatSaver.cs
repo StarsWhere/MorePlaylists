@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,6 +8,8 @@ using HMUI;
 using IPA.Loader;
 using MorePlaylists.Sources;
 using MorePlaylists.UI;
+using MorePlaylists.Utilities;
+using PlaylistManager.Utilities;
 using SiraUtil.Zenject;
 using UnityEngine;
 using Zenject;
@@ -30,7 +32,7 @@ namespace MorePlaylists.BeatSaver
             {
                 if (logo == null)
                 {
-                    logo = BeatSaberMarkupLanguage.Utilities.FindSpriteInAssembly("MorePlaylists.Images.BeatSaver.png");
+                    logo = PlaylistMods.Common.SpriteLoader.FromResource(typeof(BeatSaver).Assembly, "MorePlaylists.Images.BeatSaver.png");
                 }
                 return logo;
             }
@@ -45,8 +47,12 @@ namespace MorePlaylists.BeatSaver
 
         public BeatSaver(UBinder<Plugin, PluginMetadata> metadata, BeatSaverFiltersViewController filtersViewController, BeatSaverListViewController listViewController, BeatSaverDetailViewController detailViewController)
         {
-            var options = new BeatSaverOptions(metadata.Value.Name, metadata.Value.HVersion.ToString());
-            beatSaverInstance = new BeatSaverSharp.BeatSaver(options);
+            var assemblyVersion = typeof(Plugin).Assembly.GetName().Version;
+            var userAgentVersion = assemblyVersion == null
+                ? "2.0.0"
+                : $"{assemblyVersion.Major}.{assemblyVersion.Minor}.{assemblyVersion.Build}";
+            var options = new BeatSaverOptions(metadata.Value.Name, userAgentVersion);
+            beatSaverInstance = BeatSaverClientFactory.Create(options);
 
             this.filtersViewController = filtersViewController;
             this.listViewController = listViewController;
@@ -69,49 +75,51 @@ namespace MorePlaylists.BeatSaver
             
             filtersViewController.FiltersSet -= OnFiltersSet;
             filtersViewController.RequestDismiss -= RequestFilterViewDismiss;
+            beatSaverInstance.Dispose();
         }
 
         public async Task<List<IBeatSaverEntry>?> GetPage(bool refreshRequested, CancellationToken token)
         {
             List<IBeatSaverEntry>? entries = null;
+            token.ThrowIfCancellationRequested();
+            if (!refreshRequested && ExhaustedPlaylists) return new List<IBeatSaverEntry>();
+            PlaylistPage? nextPage = null;
             
             if (refreshRequested || page == null)
             {
                 switch (CurrentFilters.FilterMode)
                 {
                     case FilterMode.Search:
-                        page = await beatSaverInstance.SearchPlaylists(CurrentFilters.NullableSearchFilter, token: token);
+                        nextPage = await RemoteRequest.BeatSaverPage(requestToken => beatSaverInstance.SearchPlaylists(CurrentFilters.NullableSearchFilter, token: requestToken),
+                            token, "Search BeatSaver playlists");
                         break;
                     
                     case FilterMode.User:
-                        page = null;
                         if (CurrentFilters.UserName != null)
                         {
-                            var user = await beatSaverInstance.User(CurrentFilters.UserName, token);
+                            var user = await RemoteRequest.BeatSaverPage(requestToken => beatSaverInstance.User(CurrentFilters.UserName, requestToken),
+                                token, "Find BeatSaver user");
                             if (user != null)
                             {
-                                page = await beatSaverInstance.UserPlaylists(user.ID, token: token);
+                                nextPage = await RemoteRequest.BeatSaverPage(requestToken => beatSaverInstance.UserPlaylists(user.ID, token: requestToken),
+                                    token, "Find BeatSaver user playlists");
                                 entries = new List<IBeatSaverEntry> {new BeatSaverUserPlaylistEntry(user)};
                             }
                         }
                         break;
                 }
-                ExhaustedPlaylists = false;
             }
             else
             {
-                var newPage = await page.Next(token);
-                if (token.IsCancellationRequested)
-                {
-                    return null;
-                }
-                page = newPage;
+                nextPage = await RemoteRequest.BeatSaverPage(requestToken => page.Next(requestToken), token,
+                    "Next BeatSaver playlist page");
             }
-
-            if (entries == null && (page == null || page.Empty))
+            token.ThrowIfCancellationRequested();
+            ExhaustedPlaylists = nextPage == null || nextPage.Empty;
+            page = nextPage;
+            if (entries == null && ExhaustedPlaylists)
             {
-                ExhaustedPlaylists = true;
-                return null;
+                return new List<IBeatSaverEntry>();
             }
 
             entries ??= new List<IBeatSaverEntry>();

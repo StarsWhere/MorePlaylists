@@ -32,6 +32,32 @@ namespace MorePlaylists.BeatSaver
 
         [UIComponent("search-vertical")] private readonly RectTransform? searchVerticalTransform = null!;
 
+        protected override void DidActivate(bool firstActivation, bool addedToHierarchy, bool screenSystemEnabling)
+        {
+            base.DidActivate(firstActivation, addedToHierarchy, screenSystemEnabling);
+            RestoreFilters();
+        }
+
+        private void RestoreFilters()
+        {
+            var search = filterOptions.NullableSearchFilter;
+            IncludeEmpty = search?.IncludeEmpty ?? false;
+            CuratedOnly = search?.IsCurated ?? false;
+            var searchMode = filterOptions.FilterMode == FilterMode.Search;
+            var panel = searchVerticalTransform!.gameObject;
+            // A dismissed draft can still own the panel's animation coroutine.
+            // Cancel it before restoring visibility so its late callback cannot
+            // hide the committed search controls or leave them partly faded.
+            panel.GetComponent<PanelAnimation>()?.StopAllCoroutines();
+            var canvasGroup = panel.GetComponent<CanvasGroup>();
+            if (canvasGroup != null) canvasGroup.alpha = 1f;
+            searchVerticalTransform.localScale = Vector3.one;
+            filtersTabSelector!.SelectCellWithNumber(searchMode ? 0 : 1);
+            inputFieldView!.SetText((searchMode ? search?.Query : filterOptions.UserName) ?? String.Empty);
+            panel.SetActive(searchMode);
+            placeholderText!.text = searchMode ? "Search" : "Enter BeatSaver username of user (must be exact)";
+        }
+
         [UIAction("#post-parse")]
         private void PostParse()
         {
@@ -97,12 +123,9 @@ namespace MorePlaylists.BeatSaver
         public void ClearFilters()
         {
             filterOptions.ClearFilters();
-            IncludeEmpty = false;
-            CuratedOnly = false;
-
             if (inputFieldView != null)
             {
-                inputFieldView.ClearInput();
+                RestoreFilters();
             }
 
             FiltersSet?.Invoke(filterOptions);
