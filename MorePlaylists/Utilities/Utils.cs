@@ -5,7 +5,7 @@ namespace MorePlaylists.Utilities
 {
     internal static class Utils
     {
-        public static LevelSelectionFlowCoordinator.State GetStateForPlaylist(IBeatmapLevelPack beatmapLevelPack)
+        public static LevelSelectionFlowCoordinator.State GetStateForPlaylist(BeatmapLevelPack beatmapLevelPack)
         {
             var state = new LevelSelectionFlowCoordinator.State(beatmapLevelPack);
             Accessors.LevelCategoryAccessor(ref state) = SelectLevelCategoryViewController.LevelCategory.CustomSongs;

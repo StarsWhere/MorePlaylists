@@ -5,6 +5,7 @@ using SiraUtil.Web;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,7 +15,7 @@ using UnityEngine;
 
 namespace MorePlaylists.Utilities
 {
-    internal class SpriteLoader : ICachable
+    internal class SpriteLoader
     {
         private readonly IHttpService siraHttpService;
         private readonly ConcurrentDictionary<string, Sprite> cachedSprites;
@@ -32,6 +33,16 @@ namespace MorePlaylists.Utilities
         
         public async Task DownloadSpriteAsync(string spriteURL, Action<Sprite> onCompletion, CancellationToken cancellationToken = default)
         {
+            if (string.IsNullOrWhiteSpace(spriteURL))
+            {
+                Plugin.Log?.Warn("A playlist image URL was empty.");
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    onCompletion?.Invoke(BeatSaberMarkupLanguage.Utilities.ImageResources.BlankSprite);
+                }
+                return;
+            }
+
             // Check Cache
             if (cachedSprites.TryGetValue(spriteURL, out var cachedSprite))
             {
@@ -44,24 +55,35 @@ namespace MorePlaylists.Utilities
 
             try
             {
-                var webResponse = await siraHttpService.GetAsync(spriteURL, cancellationToken: cancellationToken).ConfigureAwait(false);
-                if (webResponse.Successful)
+                if (spriteURL.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase))
                 {
-                    using var responseStream = await webResponse.ReadAsStreamAsync();
-                    using var downscaledStream = await Task.Run(() => BeatSaberPlaylistsLib.Utilities.DownscaleImage(responseStream, 128), cancellationToken);
-                    if (!cancellationToken.IsCancellationRequested)
+                    var separator = spriteURL.IndexOf(',');
+                    if (separator < 0)
                     {
-                        var imageBytes = downscaledStream.ToArray();
-                        QueueLoadSprite(spriteURL, imageBytes, onCompletion, cancellationToken);
+                        throw new InvalidDataException("The data URI has no payload.");
                     }
+
+                    var imageBytes = Convert.FromBase64String(spriteURL.Substring(separator + 1));
+                    QueueLoadSprite(spriteURL, imageBytes, onCompletion, cancellationToken);
+                    return;
                 }
-                else if (!cancellationToken.IsCancellationRequested)
+
+                var downloadedImage = await RemoteRequest.GetPlaylist(siraHttpService, spriteURL, cancellationToken, responseStream =>
                 {
-                    onCompletion?.Invoke(BeatSaberMarkupLanguage.Utilities.ImageResources.BlankSprite);
+                    using var downscaledStream = BeatSaberPlaylistsLib.Utilities.DownscaleImage(responseStream, 128);
+                    return downscaledStream.ToArray();
+                });
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    QueueLoadSprite(spriteURL, downloadedImage, onCompletion, cancellationToken);
                 }
             }
-            catch (Exception)
+            catch (Exception e)
             {
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    Plugin.Log?.Warn($"Unable to load playlist image '{spriteURL}': {e.Message}");
+                }
                 if (!cancellationToken.IsCancellationRequested)
                 {
                     onCompletion?.Invoke(BeatSaberMarkupLanguage.Utilities.ImageResources.BlankSprite);
@@ -75,7 +97,7 @@ namespace MorePlaylists.Utilities
             {
                 try
                 {
-                    var sprite = BeatSaberMarkupLanguage.Utilities.LoadSpriteRaw(imageBytes);
+                    var sprite = PlaylistMods.Common.SpriteLoader.FromBytes(imageBytes);
                     sprite.texture.wrapMode = TextureWrapMode.Clamp;
                     cachedSprites.TryAdd(key, sprite);
                     if (!cancellationToken.IsCancellationRequested)
@@ -93,7 +115,7 @@ namespace MorePlaylists.Utilities
             });
             if (!coroutineRunning)
             {
-                SharedCoroutineStarter.instance.StartCoroutine(SpriteLoadCoroutine());
+                SharedCoroutineStarter.instance!.StartCoroutine(SpriteLoadCoroutine());
             }
         }
 
@@ -119,17 +141,9 @@ namespace MorePlaylists.Utilities
             coroutineRunning = false;
             if (spriteQueue.Count > 0)
             {
-                SharedCoroutineStarter.instance.StartCoroutine(SpriteLoadCoroutine());
+                SharedCoroutineStarter.instance!.StartCoroutine(SpriteLoadCoroutine());
             }
         }
 
-        public void ClearCache()
-        {
-            cachedSprites.Clear();
-            lock (queueLock)
-            {
-                spriteQueue.Clear();
-            }
-        }
     }
 }
