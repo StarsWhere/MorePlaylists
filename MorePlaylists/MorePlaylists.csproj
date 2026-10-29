@@ -1,13 +1,30 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net48</TargetFramework>
+        <TargetFramework>net472</TargetFramework>
         <OutputType>Library</OutputType>
         <LangVersion>9</LangVersion>
         <Nullable>enable</Nullable>
         <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+        <EnableFrameworkPathOverride>true</EnableFrameworkPathOverride>
+        <FrameworkPathOverride>$(BeatSaberDir)\Beat Saber_Data\Managed</FrameworkPathOverride>
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+        <Version>2.0.0</Version>
+        <InformationalVersion>2.0.0+bs1.45.2.local4</InformationalVersion>
         <LocalRefsDir Condition="Exists('..\Refs')">..\Refs</LocalRefsDir>
-        <BeatSaberDir>$(LocalRefsDir)</BeatSaberDir>
+        <BeatSaberDir Condition="'$(BeatSaberDir)' == ''">$(LocalRefsDir)</BeatSaberDir>
+        <ReferenceRoot Condition="'$(ReferenceRoot)' == ''">$(BeatSaberDir)</ReferenceRoot>
+        <PlaylistManagerPath Condition="'$(PlaylistManagerPath)' == ''">$(ReferenceRoot)\Plugins\PlaylistManager.dll</PlaylistManagerPath>
+        <BeatSaberPlaylistsLibPath Condition="'$(BeatSaberPlaylistsLibPath)' == ''">$(ReferenceRoot)\Libs\BeatSaberPlaylistsLib.dll</BeatSaberPlaylistsLibPath>
+        <BeatSaverSharpPath Condition="'$(BeatSaverSharpPath)' == ''">$(ReferenceRoot)\Libs\BeatSaverSharp.dll</BeatSaverSharpPath>
+        <SongDetailsCachePath Condition="'$(SongDetailsCachePath)' == ''">$(ReferenceRoot)\Libs\SongDetailsCache.dll</SongDetailsCachePath>
+        <BSMLPath Condition="'$(BSMLPath)' == ''">$(ReferenceRoot)\Plugins\BSML.dll</BSMLPath>
+        <SongCorePath Condition="'$(SongCorePath)' == ''">$(ReferenceRoot)\Plugins\SongCore.dll</SongCorePath>
+        <SiraUtilPath Condition="'$(SiraUtilPath)' == ''">$(ReferenceRoot)\Plugins\SiraUtil.dll</SiraUtilPath>
+        <BSUtilsPath Condition="'$(BSUtilsPath)' == ''">$(ReferenceRoot)\Plugins\BS_Utils.dll</BSUtilsPath>
+        <NewtonsoftJsonPath Condition="'$(NewtonsoftJsonPath)' == ''">$(ReferenceRoot)\Libs\Newtonsoft.Json.dll</NewtonsoftJsonPath>
+        <HiveVersioningPath Condition="'$(HiveVersioningPath)' == ''">$(ReferenceRoot)\Libs\Hive.Versioning.dll</HiveVersioningPath>
+        <SharedSpriteLoaderPath Condition="'$(SharedSpriteLoaderPath)' == ''">$(MSBuildProjectDirectory)\..\vendor\PlaylistManager\Shared\SpriteLoader.cs</SharedSpriteLoaderPath>
         <AppOutputBase>$(MSBuildProjectDirectory)\</AppOutputBase>
         <DebugType>portable</DebugType>
     </PropertyGroup>
@@ -23,19 +40,31 @@
 
     <ItemGroup>
         <Reference Include="PlaylistManager">
-          <HintPath>$(BeatSaberDir)\Plugins\PlaylistManager.dll</HintPath>
+          <HintPath>$(PlaylistManagerPath)</HintPath>
           <Private>False</Private>
         </Reference>
         <Reference Include="UnityEngine.CoreModule">
             <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
             <Private>False</Private>
         </Reference>
+        <Reference Include="UnityEngine.ImageConversionModule">
+            <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.ImageConversionModule.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
         <Reference Include="UnityEngine.UI">
             <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.UI.dll</HintPath>
             <Private>False</Private>
         </Reference>
+        <Reference Include="UnityEngine.UIModule">
+            <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.UIModule.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
         <Reference Include="Main">
             <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\Main.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
+        <Reference Include="DataModels">
+            <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\DataModels.dll</HintPath>
             <Private>False</Private>
         </Reference>
         <Reference Include="HMLib">
@@ -46,32 +75,44 @@
             <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\HMUI.dll</HintPath>
             <Private>False</Private>
         </Reference>
+        <Reference Include="BeatSaber.ViewSystem">
+            <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\BeatSaber.ViewSystem.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
+        <Reference Include="SegmentedControl">
+            <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\SegmentedControl.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
         <Reference Include="IPA.Loader">
             <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\IPA.Loader.dll</HintPath>
             <Private>False</Private>
         </Reference>
+        <Reference Include="netstandard">
+            <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\netstandard.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
         <Reference Include="Newtonsoft.Json">
-            <HintPath>$(BeatSaberDir)\Libs\Newtonsoft.Json.dll</HintPath>
+            <HintPath>$(NewtonsoftJsonPath)</HintPath>
             <Private>False</Private>
         </Reference>
         <Reference Include="BeatSaberPlaylistsLib">
-            <HintPath>$(BeatSaberDir)\Libs\BeatSaberPlaylistsLib.dll</HintPath>
+            <HintPath>$(BeatSaberPlaylistsLibPath)</HintPath>
             <Private>False</Private>
         </Reference>
         <Reference Include="BeatSaverSharp">
-            <HintPath>$(BeatSaberDir)\Libs\BeatSaverSharp.dll</HintPath>
+            <HintPath>$(BeatSaverSharpPath)</HintPath>
             <Private>False</Private>
         </Reference>
         <Reference Include="BSML">
-            <HintPath>$(BeatSaberDir)\Plugins\BSML.dll</HintPath>
+            <HintPath>$(BSMLPath)</HintPath>
             <Private>False</Private>
         </Reference>
         <Reference Include="SongCore">
-            <HintPath>$(BeatSaberDir)\Plugins\SongCore.dll</HintPath>
+            <HintPath>$(SongCorePath)</HintPath>
             <Private>False</Private>
         </Reference>
         <Reference Include="SongDetailsCache">
-            <HintPath>$(BeatSaberDir)\Libs\SongDetailsCache.dll</HintPath>
+            <HintPath>$(SongDetailsCachePath)</HintPath>
             <Private>False</Private>
         </Reference>
         <Reference Include="Zenject">
@@ -83,11 +124,11 @@
             <Private>false</Private>
         </Reference>
         <Reference Include="SiraUtil">
-            <HintPath>$(BeatSaberDir)\Plugins\SiraUtil.dll</HintPath>
+            <HintPath>$(SiraUtilPath)</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="Hive.Versioning">
-            <HintPath>$(BeatSaberDir)\Libs\Hive.Versioning.dll</HintPath>
+            <HintPath>$(HiveVersioningPath)</HintPath>
             <Private>false</Private>
         </Reference>
         <Reference Include="Unity.TextMeshPro">
@@ -97,6 +138,8 @@
     </ItemGroup>
 
     <ItemGroup>
+        <Compile Remove="obj\**\*.cs;bin\**\*.cs" />
+        <Compile Include="$(SharedSpriteLoaderPath)" Link="Shared\SpriteLoader.cs" Condition="Exists('$(SharedSpriteLoaderPath)')" />
         <None Include="Directory.Build.props" Condition="Exists('Directory.Build.props')" />
         <None Include="Directory.Build.targets" Condition="Exists('Directory.Build.targets')" />
         <None Include="MorePlaylists.csproj.user" Condition="Exists('MorePlaylists.csproj.user')" />

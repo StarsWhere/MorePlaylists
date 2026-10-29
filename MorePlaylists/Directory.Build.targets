@@ -30,7 +30,7 @@
       <FileVersion>$(BasePluginVersion)</FileVersion>
       <InformationalVersion>$(BasePluginVersion)</InformationalVersion>
     </PropertyGroup>
-    <GetCommitInfo ProjectDir="$(ProjectDir)">
+    <GetCommitInfo ProjectDir="$(ProjectDir)" Condition="'$(SkipGitInfo)' != 'True'">
       <Output TaskParameter="CommitHash" PropertyName="CommitHash" />
       <Output TaskParameter="Branch" PropertyName="Branch" />
       <Output TaskParameter="Modified" PropertyName="GitModified" />
