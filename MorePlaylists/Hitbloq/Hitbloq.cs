@@ -17,7 +17,7 @@ namespace MorePlaylists.Hitbloq
             {
                 if (logo == null)
                 {
-                    logo = BeatSaberMarkupLanguage.Utilities.FindSpriteInAssembly("MorePlaylists.Images.Hitbloq.png");
+                    logo = PlaylistMods.Common.SpriteLoader.FromResource(typeof(Hitbloq).Assembly, "MorePlaylists.Images.Hitbloq.png");
                 }
                 return logo;
             }

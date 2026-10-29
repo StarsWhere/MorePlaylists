@@ -7,6 +7,7 @@ namespace MorePlaylists.Sources
 {
     internal interface IBasicSource : ISource
     {
+        string? LoadWarning { get; }
         Task<List<IBasicEntry>?> GetEndpointResult(bool refreshRequested, CancellationToken token);
     }
 }

@@ -5,18 +5,19 @@ namespace MorePlaylists.AccSaber
 {
     internal class AccSaberEntry : SongDetailsEntry
     {
-        [JsonProperty("displayName")] 
+        [JsonProperty("playlistTitle")] 
         public override string Title { get; protected set; } = "";
         
+        [JsonProperty("playlistAuthor")]
         public override string Author { get; protected set; } = "AccSaber";
         
         [JsonProperty("description")]
         public override string Description { get; protected set; } = "";
 
-        [JsonProperty("downloadLink")] 
+        [JsonProperty("syncURL")] 
         public override string PlaylistURL { get; protected set; } = null!;
         
-        [JsonProperty("imageUrl")]
+        [JsonProperty("image")]
         public override string SpriteURL { get; protected set; } = null!;
         public override string FolderName => "AccSaber";
     }

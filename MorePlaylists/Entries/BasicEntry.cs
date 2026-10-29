@@ -1,9 +1,11 @@
 ﻿using SiraUtil.Web;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using BeatSaberPlaylistsLib.Types;
+using MorePlaylists.Utilities;
 
 namespace MorePlaylists.Entries
 {
@@ -27,38 +29,40 @@ namespace MorePlaylists.Entries
             }
 
             await cacheSemaphore.WaitAsync(cancellationToken);
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-            
             try
             {
-                var webResponse = await siraHttpService.GetAsync(PlaylistURL, cancellationToken: cancellationToken);
-                if (webResponse.Successful)
+                cancellationToken.ThrowIfCancellationRequested();
+                if (RemotePlaylist != null) return;
+                var handler = BeatSaberPlaylistsLib.PlaylistManager.DefaultManager.DefaultHandler;
+                if (handler == null)
                 {
-                    using var playlistStream = await webResponse.ReadAsStreamAsync();
-                    RemotePlaylist = BeatSaberPlaylistsLib.PlaylistManager.DefaultManager.DefaultHandler?.Deserialize(playlistStream);
+                    throw new InvalidOperationException("No playlist deserializer is registered.");
                 }
-                else if (!cancellationToken.IsCancellationRequested)
+
+                var downloaded = await RemoteRequest.GetPlaylist(siraHttpService, PlaylistURL, cancellationToken, handler.Deserialize);
+                cancellationToken.ThrowIfCancellationRequested();
+                RemotePlaylist = downloaded;
+                if (RemotePlaylist == null)
                 {
-                    Plugin.Log?.Error("An error occurred while acquiring " + PlaylistURL +
-                                      $"\nError code: {webResponse.Code}");
+                    throw new InvalidDataException("The playlist response could not be deserialized: " + PlaylistURL);
                 }
             }
-            catch (Exception e)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                if (e is not TaskCanceledException)
-                {
-                    Plugin.Log?.Error("An exception occurred while acquiring " + PlaylistURL +
-                                      $"\nException: {e.Message}");
-                }
+                throw;
+            }
+            catch (Exception exception)
+            {
+                Plugin.Log?.Error("An exception occurred while acquiring " + PlaylistURL +
+                                  $"\nException: {exception}");
+                throw;
             }
             finally
             {
                 cacheSemaphore.Release();
             }
         }
+
         
         public async Task<IPlaylist?> DownloadPlaylist(IHttpService siraHttpService, CancellationToken cancellationToken = default)
         {
@@ -67,18 +71,11 @@ namespace MorePlaylists.Entries
                 return RemotePlaylist;
             }
             
-            await cacheSemaphore.WaitAsync(cancellationToken);
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return null;
-            }
-            cacheSemaphore.Release();
-
             if (RemotePlaylist == null)
             {
                 await CachePlaylist(siraHttpService, cancellationToken);
             }
-            return RemotePlaylist;
+            return RemotePlaylist ?? throw new InvalidOperationException("The playlist download did not produce a playlist.");
         }
         
         #endregion
