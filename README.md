@@ -25,3 +25,17 @@ If you encounter any issues with this mod, DM me on Discord PixelBoom#0001 or fi
 If you're a developer and would like to contribute to this mod, your contributions are welcome! Just submit a PR and I will take a look at it.
 
 ![Screenshot](https://i.imgur.com/Evcqmzu.png)
+
+## Beat Saber 1.45.2 compatibility
+
+This fork's `compat/bs-1.45.2` branch targets Windows x64 / Beat Saber `1.45.2_28848`. Use PowerShell 7, a .NET SDK, and a game installation with the compatible external mod dependencies.
+
+```powershell
+git clone --recurse-submodules --branch compat/bs-1.45.2 https://github.com/StarsWhere/MorePlaylists.git
+cd MorePlaylists
+pwsh -File scripts/build.ps1 -GameRoot 'C:\Games\Beat Saber'
+```
+
+The build only reads game references and writes its outputs under `.tmp/`. It does not install files or run gameplay tests. Original upstream licensing and authorship are retained.
+
+The pinned PlaylistManager submodule supplies the shared SpriteLoader implementation. Install the compatible PlaylistManager plugin separately.
