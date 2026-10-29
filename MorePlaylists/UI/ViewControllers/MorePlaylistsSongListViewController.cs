@@ -1,10 +1,11 @@
-﻿using BeatSaberMarkupLanguage.Attributes;
+using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.Components;
 using BeatSaberMarkupLanguage.ViewControllers;
 using HMUI;
 using MorePlaylists.Entries;
 using MorePlaylists.Utilities;
 using SiraUtil.Web;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Zenject;
@@ -26,6 +27,7 @@ namespace MorePlaylists.UI
         
         private IEntry? currentEntry;
         private CancellationTokenSource? cancellationTokenSource;
+        private bool retryFirstPage = true;
         
         private ScrollView? scrollView;
         private float? currentScrollPosition;
@@ -44,6 +46,9 @@ namespace MorePlaylists.UI
         protected override void DidDeactivate(bool removedFromHierarchy, bool screenSystemDisabling)
         {
             base.DidDeactivate(removedFromHierarchy, screenSystemDisabling);
+            cancellationTokenSource?.Cancel();
+            cancellationTokenSource?.Dispose();
+            cancellationTokenSource = null;
             if (scrollView != null)
             {
                 scrollView.scrollPositionChangedEvent -= OnScrollPositionChanged;
@@ -58,6 +63,7 @@ namespace MorePlaylists.UI
             }
 
             currentEntry = entry;
+            ClearError();
             
             cancellationTokenSource?.Cancel();
             cancellationTokenSource?.Dispose();
@@ -74,8 +80,6 @@ namespace MorePlaylists.UI
             }
             
             currentScrollPosition = newPos;
-            scrollView.RefreshButtons();
-
             if (!Accessors.PageDownAccessor(ref scrollView).interactable)
             {
                 cancellationTokenSource?.Cancel();
@@ -86,10 +90,28 @@ namespace MorePlaylists.UI
         }
         
         [UIAction("#post-parse")]
-        private void PostParse() => scrollView = Accessors.ScrollViewAccessor(ref customListTableData!.tableView);
+        private void PostParse()
+        {
+            var tableView = customListTableData!.TableView;
+            scrollView = Accessors.ScrollViewAccessor(ref tableView);
+        }
 
         [UIAction("list-select")]
-        private void Select(TableView _, int __) => customListTableData!.tableView.ClearSelection();
+        private void Select(TableView _, int __) => customListTableData!.TableView.ClearSelection();
+
+        [UIAction("retry-click")]
+        private void RetryClicked()
+        {
+            if (currentEntry == null)
+            {
+                return;
+            }
+
+            cancellationTokenSource?.Cancel();
+            cancellationTokenSource?.Dispose();
+            cancellationTokenSource = new CancellationTokenSource();
+            _ = InitSongList(currentEntry, cancellationTokenSource.Token, retryFirstPage);
+        }
 
         private async Task InitSongList(IEntry entry, CancellationToken cancellationToken, bool firstPage)
         {
@@ -98,20 +120,25 @@ namespace MorePlaylists.UI
                 return;
             }
 
-            await songLoadSemaphore.WaitAsync(cancellationToken);
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-            
+            var semaphoreAcquired = false;
             try
             {
+                await songLoadSemaphore.WaitAsync(cancellationToken);
+                semaphoreAcquired = true;
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                ClearError();
+                retryFirstPage = firstPage;
+
                 if (firstPage)
                 {
                     await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(() =>
                     {
-                        customListTableData.data.Clear();
-                        customListTableData.tableView.ReloadData();
+                        customListTableData.Data.Clear();
+                        customListTableData.TableView.ReloadData();
                         Loaded = false;
                     });   
                 }
@@ -125,8 +152,14 @@ namespace MorePlaylists.UI
             
                 var songs = await entry.GetSongs(siraHttpService, cancellationToken, firstPage);
             
-                if (cancellationToken.IsCancellationRequested || songs == null)
+                if (cancellationToken.IsCancellationRequested)
                 {
+                    return;
+                }
+
+                if (songs == null)
+                {
+                    SetError("Unable to load playlist songs. Check your connection and retry.");
                     return;
                 }
             
@@ -137,11 +170,11 @@ namespace MorePlaylists.UI
                 
                     _ = spriteLoader.DownloadSpriteAsync(song.CoverURL, sprite =>
                     {
-                        customCellInfo.icon = sprite;
-                        customListTableData.tableView.ReloadDataKeepingPosition();
+                        customCellInfo.Icon = sprite;
+                        customListTableData.TableView.ReloadDataKeepingPosition();
                     }, cancellationToken);
                 
-                    customListTableData.data.Add(customCellInfo);
+                    customListTableData.Data.Add(customCellInfo);
                                 
                     if (cancellationToken.IsCancellationRequested)
                     {
@@ -149,21 +182,69 @@ namespace MorePlaylists.UI
                     }
                 }
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.Error($"Unable to load songs for playlist '{entry.Title}': {e}");
+                if (!cancellationToken.IsCancellationRequested)
+                    SetError("Unable to load playlist songs. Check your connection and retry.");
+            }
             finally
             {
-                Loaded = true;
-                await SiraUtil.Extras.Utilities.PauseChamp;
-                await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(() =>
+                if (semaphoreAcquired)
                 {
-                    customListTableData.tableView.ReloadDataKeepingPosition();
-                });
-                songLoadSemaphore.Release();
+                    try
+                    {
+                        if (!cancellationToken.IsCancellationRequested)
+                            await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(() =>
+                            {
+                                Loaded = true;
+                                customListTableData.TableView.ReloadDataKeepingPosition();
+                            });
+                    }
+                    catch (Exception exception) { Plugin.Log?.Error("Unable to update playlist songs: " + exception); }
+                    finally { songLoadSemaphore.Release(); }
+                }
             }
         }
         
         #region Loading
 
         private bool loaded;
+        private string errorText = string.Empty;
+
+        private void ClearError()
+        {
+            if (errorText.Length == 0)
+            {
+                return;
+            }
+
+            errorText = string.Empty;
+            NotifyPropertyChanged(nameof(HasError));
+            NotifyPropertyChanged(nameof(ErrorText));
+            NotifyPropertyChanged(nameof(HasNoResults));
+        }
+
+        private void SetError(string message)
+        {
+            errorText = message;
+            NotifyPropertyChanged(nameof(HasError));
+            NotifyPropertyChanged(nameof(ErrorText));
+            NotifyPropertyChanged(nameof(HasNoResults));
+        }
+
+        [UIValue("has-error")]
+        private bool HasError => errorText.Length > 0;
+
+        [UIValue("has-no-results")]
+        private bool HasNoResults => Loaded && !HasError && customListTableData?.Data.Count == 0;
+
+        [UIValue("error-text")]
+        private string ErrorText => errorText;
+
         [UIValue("is-loading")]
         private bool IsLoading => !Loaded;
 
@@ -176,6 +257,7 @@ namespace MorePlaylists.UI
                 loaded = value;
                 NotifyPropertyChanged();
                 NotifyPropertyChanged(nameof(IsLoading));
+                NotifyPropertyChanged(nameof(HasNoResults));
             }
         }
 

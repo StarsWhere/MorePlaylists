@@ -16,4 +16,5 @@
         <button text='⏬ Playlist' on-click='download-click' interactable='~download-interactable' pad='0' pref-height='8' pref-width='25' anchor-pos-y='25' />
         <button text='⏬ Playlist + Songs' on-click='download-all-click' interactable='~download-interactable' pad='0' pref-height='8' pref-width='35' anchor-pos-y='25' />
     </horizontal>
+    <text text='~download-error' active='~has-download-error' color="#FFB3B3" text-align='center' word-wrapping='true' pref-width='60' />
 </vertical>

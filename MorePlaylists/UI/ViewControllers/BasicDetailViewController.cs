@@ -23,6 +23,9 @@ namespace MorePlaylists.UI
         private readonly MaterialGrabber materialGrabber = null!;
         
         private IEntry? selectedPlaylistEntry;
+        private string downloadError = string.Empty;
+        private CancellationTokenSource? spriteLoadTokenSource;
+        private bool viewParsed;
         
         public ViewController ViewController => this;
         public event Action<IEntry, bool>? DidPressDownload;
@@ -40,7 +43,9 @@ namespace MorePlaylists.UI
         private void PostParse()
         {
             rectTransform.anchorMax = new Vector2(0.5f, 1);
-            playlistCoverView.material = materialGrabber.NoGlowRoundEdge;
+            if (materialGrabber != null && playlistCoverView != null) playlistCoverView.material = materialGrabber.NoGlowRoundEdge;
+            viewParsed = true;
+            ApplySelectedDetails();
         }
 
         [UIAction("download-click")]
@@ -48,6 +53,7 @@ namespace MorePlaylists.UI
         {
             if (selectedPlaylistEntry != null)
             {
+                ClearDownloadError();
                 DidPressDownload?.Invoke(selectedPlaylistEntry, false);
                 NotifyPropertyChanged(nameof(DownloadInteractable));
             }
@@ -58,6 +64,7 @@ namespace MorePlaylists.UI
         {
             if (selectedPlaylistEntry != null)
             {
+                ClearDownloadError();
                 DidPressDownload?.Invoke(selectedPlaylistEntry, true);
                 NotifyPropertyChanged(nameof(DownloadInteractable));
             }
@@ -77,21 +84,76 @@ namespace MorePlaylists.UI
         public void ShowDetail(IEntry selectedPlaylistEntry)
         {
             this.selectedPlaylistEntry = selectedPlaylistEntry;
+            if (!viewParsed) return;
+            ApplySelectedDetails();
+        }
+
+        private void ApplySelectedDetails()
+        {
+            if (!viewParsed || selectedPlaylistEntry == null) return;
+
+            IEntry entry = selectedPlaylistEntry;
+            ClearDownloadError();
             NotifyPropertyChanged(nameof(DownloadInteractable));
             NotifyPropertyChanged(nameof(DownloadActive));
             NotifyPropertyChanged(nameof(GoToActive));
             NotifyPropertyChanged(nameof(PlaylistName));
             NotifyPropertyChanged(nameof(PlaylistAuthor));
             NotifyPropertyChanged(nameof(PlaylistDescription));
-            descriptionTextPage.ScrollTo(0, true);
-            _ = spriteLoader.DownloadSpriteAsync(selectedPlaylistEntry.SpriteURL, sprite => playlistCoverView.sprite = sprite);
+            if (descriptionTextPage != null) descriptionTextPage.ScrollTo(0, true);
+
+            spriteLoadTokenSource?.Cancel();
+            spriteLoadTokenSource?.Dispose();
+            spriteLoadTokenSource = new CancellationTokenSource();
+            CancellationToken token = spriteLoadTokenSource.Token;
+            if (playlistCoverView != null)
+            {
+                _ = spriteLoader.DownloadSpriteAsync(entry.SpriteURL,
+                    sprite =>
+                    {
+                        if (!token.IsCancellationRequested && ReferenceEquals(selectedPlaylistEntry, entry) && playlistCoverView != null)
+                            playlistCoverView.sprite = sprite;
+                    }, token);
+            }
         }
 
-        public void OnPlaylistDownloaded()
+        public void OnPlaylistDownloaded(IEntry entry)
         {
+            if (!ReferenceEquals(selectedPlaylistEntry, entry))
+            {
+                return;
+            }
+
+            ClearDownloadError();
             NotifyPropertyChanged(nameof(DownloadInteractable));
             NotifyPropertyChanged(nameof(DownloadActive));
             NotifyPropertyChanged(nameof(GoToActive));
+        }
+
+        public void OnPlaylistDownloadFailed(IEntry entry, Exception exception)
+        {
+            if (!ReferenceEquals(selectedPlaylistEntry, entry))
+            {
+                return;
+            }
+
+            downloadError = "Download failed. Try again.";
+            NotifyPropertyChanged(nameof(HasDownloadError));
+            NotifyPropertyChanged(nameof(DownloadError));
+            NotifyPropertyChanged(nameof(DownloadInteractable));
+            NotifyPropertyChanged(nameof(DownloadActive));
+        }
+
+        private void ClearDownloadError()
+        {
+            if (downloadError.Length == 0)
+            {
+                return;
+            }
+
+            downloadError = string.Empty;
+            NotifyPropertyChanged(nameof(HasDownloadError));
+            NotifyPropertyChanged(nameof(DownloadError));
         }
 
         #region Values
@@ -138,6 +200,12 @@ namespace MorePlaylists.UI
 
         [UIValue("download-active")]
         public bool DownloadActive => selectedPlaylistEntry is {LocalPlaylist: null};
+
+        [UIValue("has-download-error")]
+        public bool HasDownloadError => downloadError.Length > 0;
+
+        [UIValue("download-error")]
+        public string DownloadError => downloadError;
 
         [UIValue("go-to-active")]
         public bool GoToActive => selectedPlaylistEntry is {LocalPlaylist: { }};

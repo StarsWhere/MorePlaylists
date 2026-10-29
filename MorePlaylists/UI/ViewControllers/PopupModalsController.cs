@@ -14,6 +14,7 @@ namespace MorePlaylists.UI
     internal class PopupModalsController : INotifyPropertyChanged
     {
         private readonly BasicListViewController morePlaylistsListViewController;
+        private readonly BSMLParser bsmlParser;
         private bool parsed;
         public event PropertyChangedEventHandler? PropertyChanged;
         
@@ -35,16 +36,17 @@ namespace MorePlaylists.UI
         [UIParams]
         private readonly BSMLParserParams parserParams = null!;
 
-        public PopupModalsController(BasicListViewController morePlaylistsListViewController)
+        public PopupModalsController(BasicListViewController morePlaylistsListViewController, BSMLParser bsmlParser)
         {
             this.morePlaylistsListViewController = morePlaylistsListViewController;
+            this.bsmlParser = bsmlParser;
         }
 
         private void Parse()
         {
             if (!parsed)
             {
-                BSMLParser.instance.Parse(BeatSaberMarkupLanguage.Utilities.GetResourceContent(Assembly.GetExecutingAssembly(), "MorePlaylists.UI.Views.PopupModals.bsml"), morePlaylistsListViewController.gameObject, this);
+                bsmlParser.Parse(BeatSaberMarkupLanguage.Utilities.GetResourceContent(Assembly.GetExecutingAssembly(), "MorePlaylists.UI.Views.PopupModals.bsml"), morePlaylistsListViewController.gameObject, this);
                 okModalPosition = okModalTransform.localPosition;
                 parsed = true;
             }

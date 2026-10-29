@@ -8,27 +8,26 @@ namespace MorePlaylists.UI
     internal class MenuButtonUI : IInitializable, IDisposable
     {
         private readonly MenuButton menuButton;
+        private readonly MenuButtons menuButtons;
         private readonly MainFlowCoordinator mainFlowCoordinator;
         private readonly MorePlaylistsFlowCoordinator morePlaylistsFlowCoordinator;
 
-        public MenuButtonUI(MainFlowCoordinator mainFlowCoordinator, MorePlaylistsFlowCoordinator morePlaylistsFlowCoordinator)
+        public MenuButtonUI(MenuButtons menuButtons, MainFlowCoordinator mainFlowCoordinator, MorePlaylistsFlowCoordinator morePlaylistsFlowCoordinator)
         {
             menuButton = new MenuButton("More Playlists", "Download Playlists", MenuButtonClicked, true);
+            this.menuButtons = menuButtons;
             this.mainFlowCoordinator = mainFlowCoordinator;
             this.morePlaylistsFlowCoordinator = morePlaylistsFlowCoordinator;
         }
 
         public void Initialize()
         {
-            MenuButtons.instance.RegisterButton(menuButton);
+            menuButtons.RegisterButton(menuButton);
         }
 
         public void Dispose()
         {
-            if (MenuButtons.IsSingletonAvailable)
-            {
-                MenuButtons.instance.UnregisterButton(menuButton);
-            }
+            menuButtons.UnregisterButton(menuButton);
         }
 
         private void MenuButtonClicked()

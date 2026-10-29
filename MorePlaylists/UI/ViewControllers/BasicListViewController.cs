@@ -1,4 +1,4 @@
-﻿using BeatSaberMarkupLanguage.Attributes;
+using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.Components;
 using BeatSaberMarkupLanguage.ViewControllers;
 using HMUI;
@@ -53,25 +53,30 @@ namespace MorePlaylists.UI
             base.DidActivate(firstActivation, addedToHierarchy, screenSystemEnabling);
             if (currentSource != null && customListTableData != null && sourceButton != null && inputFieldView != null)
             {
-                sourceButton.image.sprite = currentSource.Logo;
+                sourceButton.Image.sprite = currentSource.Logo;
                 inputFieldView.ClearInput();
                 loadCancellationTokenSource?.Cancel();
                 loadCancellationTokenSource?.Dispose();
                 loadCancellationTokenSource = new CancellationTokenSource();
+                ClearError();
                 _ = LoadPlaylists(currentSource, loadCancellationTokenSource.Token);
             }
         }
         
         public void Dispose()
         {
-            playlistLoadSemaphore.Dispose();
-            loadCancellationTokenSource?.Dispose();
-            searchCancellationTokenSource?.Dispose();
+            AbortLoading();
             if (inputFieldView != null)
             {
                 inputFieldView.onValueChanged.RemoveAllListeners();
                 inputFieldView.selectionStateDidChangeEvent -= InputFieldSelectionChanged;
             }
+        }
+
+        protected override void DidDeactivate(bool removedFromHierarchy, bool screenSystemDisabling)
+        {
+            base.DidDeactivate(removedFromHierarchy, screenSystemDisabling);
+            AbortLoading();
         }
 
         #region Actions
@@ -103,6 +108,20 @@ namespace MorePlaylists.UI
 
         [UIAction("source-click")]
         private void DisplaySources() => DidClickSource?.Invoke();
+
+        [UIAction("retry-click")]
+        private void RetryClicked()
+        {
+            if (currentSource == null)
+            {
+                return;
+            }
+
+            loadCancellationTokenSource?.Cancel();
+            loadCancellationTokenSource?.Dispose();
+            loadCancellationTokenSource = new CancellationTokenSource();
+            _ = LoadPlaylists(currentSource, loadCancellationTokenSource.Token, true);
+        }
         
         public void AbortLoading()
         {
@@ -119,14 +138,14 @@ namespace MorePlaylists.UI
         
         public void SetEntryAsOwned(IEntry playlistEntry)
         {
-            var index = currentPlaylists.IndexOf(playlistEntry);
+            var index = currentPlaylists.FindIndex(entry => ReferenceEquals(entry, playlistEntry));
             if (index >= 0 && customListTableData != null)
             {
-                customListTableData.data[index] = new CustomListTableData.CustomCellInfo($"<#7F7F7F>{playlistEntry.Title}", playlistEntry.Author);
+                customListTableData.Data[index] = new CustomListTableData.CustomCellInfo($"<#7F7F7F>{playlistEntry.Title}", playlistEntry.Author);
                 _ = spriteLoader.DownloadSpriteAsync(playlistEntry.SpriteURL, sprite =>
                 {
-                    customListTableData.data[index].icon = sprite;
-                    customListTableData.tableView.ReloadDataKeepingPosition();
+                    customListTableData.Data[index].Icon = sprite;
+                    customListTableData.TableView.ReloadDataKeepingPosition();
                 });
             }
         }
@@ -135,7 +154,7 @@ namespace MorePlaylists.UI
         {
             if (selectionState == InputFieldView.SelectionState.Pressed)
             {
-                customListTableData!.tableView.ClearSelection();
+                customListTableData!.TableView.ClearSelection();
                 DetailDismissRequested?.Invoke();
             }
         }
@@ -157,18 +176,21 @@ namespace MorePlaylists.UI
                 return;
             }
             
-            await playlistLoadSemaphore.WaitAsync(cancellationToken);
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-
+            var semaphoreAcquired = false;
             try
             {
+                await playlistLoadSemaphore.WaitAsync(cancellationToken);
+                semaphoreAcquired = true;
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                ClearError();
                 await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(() =>
                 {
-                    customListTableData.tableView.ClearSelection();
-                    customListTableData.data.Clear();
+                    customListTableData.TableView.ClearSelection();
+                    customListTableData.Data.Clear();
                     Loaded = false;
                 });
 
@@ -181,26 +203,49 @@ namespace MorePlaylists.UI
 
                 allPlaylists = await source.GetEndpointResult(refreshRequested, cancellationToken);
 
-                if (cancellationToken.IsCancellationRequested || allPlaylists == null)
+                if (cancellationToken.IsCancellationRequested)
                 {
+                    return;
+                }
+
+                if (allPlaylists == null)
+                {
+                    SetError("Unable to load playlists. Check your connection and retry.");
                     return;
                 }
                 
                 currentPlaylists.Clear();
                 currentPlaylists.AddRange(allPlaylists);
+                if (!string.IsNullOrEmpty(source.LoadWarning)) SetError(source.LoadWarning!);
                 PlaylistLibUtils.UpdatePlaylistsOwned(currentPlaylists.Cast<IEntry>().ToList());
                 
                 ShowPlaylists(cancellationToken);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.Error($"Unable to load {source.GetType().Name} playlists: {e}");
+                if (!cancellationToken.IsCancellationRequested)
+                    SetError("Unable to load playlists. Check your connection and retry.");
+            }
             finally
             {
-                Loaded = true;
-                await SiraUtil.Extras.Utilities.PauseChamp;
-                await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(() =>
+                if (semaphoreAcquired)
                 {
-                    customListTableData.tableView.ReloadData();
-                });
-                playlistLoadSemaphore.Release();
+                    try
+                    {
+                        if (!cancellationToken.IsCancellationRequested)
+                            await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(() =>
+                            {
+                                Loaded = true;
+                                customListTableData.TableView.ReloadData();
+                            });
+                    }
+                    catch (Exception exception) { Plugin.Log?.Error("Unable to update playlist list: " + exception); }
+                    finally { playlistLoadSemaphore.Release(); }
+                }
             }
         }
 
@@ -220,11 +265,11 @@ namespace MorePlaylists.UI
 
                 _ = spriteLoader.DownloadSpriteAsync(playlistEntry.SpriteURL, sprite =>
                 {
-                    customCellInfo.icon = sprite;
-                    customListTableData.tableView.ReloadDataKeepingPosition();
+                    customCellInfo.Icon = sprite;
+                    customListTableData.TableView.ReloadDataKeepingPosition();
                 }, cancellationToken);
 
-                customListTableData.data.Add(customCellInfo);
+                customListTableData.Data.Add(customCellInfo);
 
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -240,14 +285,16 @@ namespace MorePlaylists.UI
                 return;
             }
             
-            await playlistLoadSemaphore.WaitAsync(cancellationToken);
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-
+            var semaphoreAcquired = false;
             try
             {
+                await playlistLoadSemaphore.WaitAsync(cancellationToken);
+                semaphoreAcquired = true;
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+
                 if (allPlaylists == null)
                 {
                     return;
@@ -255,7 +302,7 @@ namespace MorePlaylists.UI
 
                 await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(() =>
                 {
-                    customListTableData.data.Clear();
+                    customListTableData.Data.Clear();
                     Loaded = false;
                 });
                 
@@ -272,7 +319,7 @@ namespace MorePlaylists.UI
                     currentPlaylists.AddRange(allPlaylists);
                     await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(() =>
                     {
-                        customListTableData!.tableView.ClearSelection();
+                        customListTableData!.TableView.ClearSelection();
                         DetailDismissRequested?.Invoke();
                     });
                 }
@@ -327,16 +374,22 @@ namespace MorePlaylists.UI
                 await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(() =>
                 {
                     Loaded = true;
-                    customListTableData.tableView.ReloadData();
+                    customListTableData.TableView.ReloadData();
                 });
             }
-            catch (Exception)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                // ignored
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.Error($"Unable to filter {currentSource?.GetType().Name ?? "playlist"} results: {e.Message}");
             }
             finally
             {
-                playlistLoadSemaphore.Release();
+                if (semaphoreAcquired)
+                {
+                    playlistLoadSemaphore.Release();
+                }
             }
         }
 
@@ -345,6 +398,37 @@ namespace MorePlaylists.UI
         #region Loading
 
         private bool loaded;
+        private string errorText = string.Empty;
+
+        private void ClearError()
+        {
+            if (errorText.Length == 0)
+            {
+                return;
+            }
+
+            errorText = string.Empty;
+            NotifyPropertyChanged(nameof(HasError));
+            NotifyPropertyChanged(nameof(ErrorText));
+            NotifyPropertyChanged(nameof(HasNoResults));
+        }
+
+        private void SetError(string message)
+        {
+            errorText = message;
+            NotifyPropertyChanged(nameof(HasError));
+            NotifyPropertyChanged(nameof(ErrorText));
+            NotifyPropertyChanged(nameof(HasNoResults));
+        }
+
+        [UIValue("has-error")]
+        private bool HasError => errorText.Length > 0;
+
+        [UIValue("has-no-results")]
+        private bool HasNoResults => Loaded && !HasError && customListTableData?.Data.Count == 0;
+
+        [UIValue("error-text")]
+        private string ErrorText => errorText;
         
         [UIValue("is-loading")]
         private bool IsLoading => !Loaded;
@@ -358,6 +442,7 @@ namespace MorePlaylists.UI
                 loaded = value;
                 NotifyPropertyChanged();
                 NotifyPropertyChanged(nameof(IsLoading));
+                NotifyPropertyChanged(nameof(HasNoResults));
             }
         }
 

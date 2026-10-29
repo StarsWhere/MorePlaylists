@@ -18,6 +18,7 @@ namespace MorePlaylists.UI
     internal class SourceModalController
     {
         private readonly List<ISource> sources; 
+        private readonly BSMLParser bsmlParser;
         private bool parsed;
         public ISource SelectedSource { get; private set; }
         public event Action<ISource>? DidSelectSource;
@@ -36,9 +37,10 @@ namespace MorePlaylists.UI
         [UIParams]
         private readonly BSMLParserParams parserParams = null!;
         
-        public SourceModalController(List<ISource> sources)
+        public SourceModalController(List<ISource> sources, BSMLParser bsmlParser)
         {
             this.sources = sources;
+            this.bsmlParser = bsmlParser;
             SelectedSource = sources.First();
         }
 
@@ -46,7 +48,7 @@ namespace MorePlaylists.UI
         {
             if (!parsed)
             {
-                BSMLParser.instance.Parse(BeatSaberMarkupLanguage.Utilities.GetResourceContent(Assembly.GetExecutingAssembly(), "MorePlaylists.UI.Views.SourceModal.bsml"), parent.gameObject, this);
+                bsmlParser.Parse(BeatSaberMarkupLanguage.Utilities.GetResourceContent(Assembly.GetExecutingAssembly(), "MorePlaylists.UI.Views.SourceModal.bsml"), parent.gameObject, this);
                 sourceModalPosition = sourceModalTransform.position;
                 parsed = true;
             }
@@ -58,13 +60,13 @@ namespace MorePlaylists.UI
         [UIAction("#post-parse")]
         private void PostParse()
         {
-            customListTableData.data.Clear();
+            customListTableData.Data.Clear();
             foreach (var source in sources)
             {
-                customListTableData.data.Add(new CustomListTableData.CustomCellInfo(source.GetType().Name, "", source.Logo));
+                customListTableData.Data.Add(new CustomListTableData.CustomCellInfo(source.GetType().Name, "", source.Logo));
             }
-            customListTableData.tableView.ReloadData();
-            customListTableData.tableView.SelectCellWithIdx(0);
+            customListTableData.TableView.ReloadData();
+            customListTableData.TableView.SelectCellWithIdx(0);
         }
 
         internal void ShowModal(Transform parent)
@@ -77,8 +79,8 @@ namespace MorePlaylists.UI
         [UIAction("list-select")]
         private void Select(TableView tableView, int row)
         {
-            DidSelectSource?.Invoke(sources[row]);
             SelectedSource = sources[row];
+            DidSelectSource?.Invoke(SelectedSource);
             parserParams.EmitEvent("close-source-modal");
         }
     }

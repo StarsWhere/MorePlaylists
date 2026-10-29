@@ -10,6 +10,7 @@ namespace MorePlaylists.UI
         event Action<IEntry, bool> DidPressDownload;
         event Action<BeatSaberPlaylistsLib.Types.IPlaylist> DidGoToPlaylist;
         void ShowDetail(IEntry entry);
-        void OnPlaylistDownloaded();
+        void OnPlaylistDownloaded(IEntry entry);
+        void OnPlaylistDownloadFailed(IEntry entry, Exception exception);
     }
 }
