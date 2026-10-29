@@ -1,0 +1,3 @@
+[submodule "vendor/PlaylistManager"]
+	path = vendor/PlaylistManager
+	url = https://github.com/StarsWhere/PlaylistManager.git
